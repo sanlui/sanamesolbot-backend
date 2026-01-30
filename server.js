@@ -1,4 +1,5 @@
 import express from "express";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
@@ -10,33 +11,47 @@ async function sendMessage(chatId, text) {
   await fetch(`${TG_API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text })
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML"
+    })
   });
 }
 
+// health check
 app.get("/", (_, res) => res.send("OK"));
 
+// webhook
 app.post("/telegram", async (req, res) => {
   try {
-    const msg = req.body.message?.text;
-    const chatId = req.body.message?.chat?.id;
+    const message =
+      req.body.message ||
+      req.body.edited_message ||
+      req.body.callback_query?.message;
+
+    const msg = message?.text || "";
+    const chatId = message?.chat?.id;
 
     if (!chatId) return res.sendStatus(200);
 
-    if (msg === "/start") {
+    // ✅ FIX FONDAMENTALE
+    if (msg.startsWith("/start")) {
       await sendMessage(
         chatId,
-        `✅ Bot collegato!\n\nIl tuo chat_id è:\n${chatId}\n\n👉 Incollalo nell’app:\n⚙️ Settings → ACTIVATE`
+        `✅ <b>Bot collegato!</b>\n\n` +
+        `Il tuo <b>chat_id</b> è:\n<code>${chatId}</code>\n\n` +
+        `👉 Incollalo nell’app:\n⚙️ Settings → ACTIVATE`
       );
     }
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
   } catch (err) {
-    console.error(err);
-    res.sendStatus(200);
+    console.error("Webhook error:", err);
+    return res.sendStatus(200);
   }
 });
 
-app.listen(process.env.PORT || 3000, () =>
-  console.log("Telegram bot backend running")
-);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("✅ Telegram bot backend running");
+});
