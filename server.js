@@ -1,5 +1,4 @@
 import express from "express";
-import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
@@ -35,7 +34,7 @@ app.post("/telegram", async (req, res) => {
 
     if (!chatId) return res.sendStatus(200);
 
-    // ✅ FIX FONDAMENTALE
+    // ✅ gestisce /start e /start connect
     if (msg.startsWith("/start")) {
       await sendMessage(
         chatId,
@@ -55,3 +54,4 @@ app.post("/telegram", async (req, res) => {
 app.listen(process.env.PORT || 3000, () => {
   console.log("✅ Telegram bot backend running");
 });
+V
