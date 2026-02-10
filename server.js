@@ -1,11 +1,11 @@
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
 import { upsertUser, addWallet, removeWallet, listWallets } from "./storage.js";
 import { startPoller } from "./poller.js";
 
 const app = express();
 
+// ====== Middleware ======
 app.use(express.json({ limit: "1mb" }));
 
 app.use(
@@ -14,14 +14,15 @@ app.use(
     credentials: true,
   })
 );
-
 app.options("*", cors());
 
+// Log richieste (debug)
 app.use((req, _res, next) => {
   console.log(`-> ${req.method} ${req.url}`);
   next();
 });
 
+// ====== ENV ======
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
 const RPC_URL = process.env.RPC_URL;
@@ -33,12 +34,11 @@ if (!RPC_URL) console.error("❌ Missing RPC_URL");
 
 const TG_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : null;
 
+// ====== Utils ======
 function normalizeChatId(obj) {
   const raw = obj?.chatId ?? obj?.chat_id ?? obj?.chatID ?? obj?.cid;
   const chatId =
-    typeof raw === "string" || typeof raw === "number"
-      ? String(raw).trim()
-      : "";
+    typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
   if (!chatId || !/^[-]?\d+$/.test(chatId)) return null;
   return chatId;
 }
@@ -49,6 +49,7 @@ async function sendMessage(chatId, text) {
     return null;
   }
 
+  // Node 22: fetch globale (no node-fetch)
   const resp = await fetch(`${TG_API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -61,17 +62,17 @@ async function sendMessage(chatId, text) {
   });
 
   const data = await resp.json().catch(() => null);
-
   if (!resp.ok || !data?.ok) {
     console.error("❌ Telegram sendMessage failed:", resp.status, data);
   }
-
   return data;
 }
 
+// ====== Basic ======
 app.get("/", (_req, res) => res.send("OK"));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// ====== API per app/web ======
 app.post("/api/register", async (req, res) => {
   try {
     const chatId = normalizeChatId(req.body);
@@ -85,6 +86,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
+// ✅ Activate = salva + manda messaggio TG (così vedi subito se funziona)
 app.post("/api/activate", async (req, res) => {
   try {
     const chatId = normalizeChatId(req.body);
@@ -92,7 +94,11 @@ app.post("/api/activate", async (req, res) => {
 
     await upsertUser(chatId);
 
-    const out = await sendMessage(chatId, "✅ Attivazione completata! Riceverai le notifiche qui.");
+    const out = await sendMessage(
+      chatId,
+      "✅ Attivazione completata! Riceverai le notifiche qui."
+    );
+
     return res.json({ ok: true, chatId, telegramOk: !!out?.ok });
   } catch (err) {
     console.error("❌ /api/activate error:", err);
@@ -147,6 +153,7 @@ app.get("/api/list-wallets", async (req, res) => {
   }
 });
 
+// endpoint “notify” per test dal frontend
 app.post("/notify", async (req, res) => {
   try {
     const chatId = normalizeChatId(req.body);
@@ -164,6 +171,7 @@ app.post("/notify", async (req, res) => {
   }
 });
 
+// ====== Telegram Webhook ======
 app.post("/telegram", async (req, res) => {
   try {
     const msg = req.body?.message?.text;
@@ -188,7 +196,10 @@ app.post("/telegram", async (req, res) => {
         await sendMessage(cid, "❌ Uso: /add WALLET");
       } else {
         const u = await addWallet(cid, wallet);
-        await sendMessage(cid, `✅ Aggiunto!\nOra monitori:\n${u.wallets.map(w => `• <code>${w}</code>`).join("\n")}`);
+        await sendMessage(
+          cid,
+          `✅ Aggiunto!\nOra monitori:\n${u.wallets.map(w => `• <code>${w}</code>`).join("\n")}`
+        );
       }
       return res.sendStatus(200);
     }
@@ -230,22 +241,40 @@ app.post("/telegram", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+// ====== Start server + Poller (robusto) ======
+const PORT = Number(process.env.PORT || 3000);
 
-app.listen(PORT, () => {
-  console.log("✅ Server running on port", PORT);
+// Anti-doppio listen (evita EADDRINUSE se parte due volte)
+if (!globalThis.__WATCHSOL_LISTENING__) {
+  globalThis.__WATCHSOL_LISTENING__ = true;
 
-  if (BOT_TOKEN && HELIUS_API_KEY && RPC_URL) {
-    startPoller({
-      pollIntervalMs: POLL_INTERVAL_MS,
-      rpcUrl: RPC_URL,
-      heliusApiKey: HELIUS_API_KEY,
-      onAlert: async (chatId, msg) => {
-        await sendMessage(String(chatId), String(msg));
+  const server = app.listen(PORT, () => {
+    console.log("✅ Server running on port", PORT);
+
+    // Avvio poller solo se env ok
+    if (BOT_TOKEN && HELIUS_API_KEY && RPC_URL) {
+      try {
+        startPoller({
+          pollIntervalMs: POLL_INTERVAL_MS,
+          rpcUrl: RPC_URL,
+          heliusApiKey: HELIUS_API_KEY,
+          onAlert: async (chatId, msg) => {
+            await sendMessage(String(chatId), String(msg));
+          }
+        });
+        console.log("✅ Poller started:", POLL_INTERVAL_MS, "ms");
+      } catch (e) {
+        console.error("❌ Poller crashed on boot:", e);
       }
-    });
-    console.log("✅ Poller started:", POLL_INTERVAL_MS, "ms");
-  } else {
-    console.log("⚠️ Poller NOT started (missing env vars)");
-  }
-});
+    } else {
+      console.log("⚠️ Poller NOT started (missing env vars)");
+    }
+  });
+
+  server.on("error", (err) => {
+    console.error("❌ Server listen error:", err);
+    process.exit(1);
+  });
+} else {
+  console.log("⚠️ server.js already listening — skipping second start");
+}
