@@ -2,6 +2,8 @@ import { getData } from "./storage.js";
 
 export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
   const lastSigByWallet = new Map();
+  const recentAlertByFingerprint = new Map();
+  const DEDUP_WINDOW_MS = 45_000;
   let running = false;
 
   function matchFilter(tx, filter) {
@@ -95,8 +97,43 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
     }
   }
 
+  function computeAlertScore(tx) {
+    const nativeTransfers = Array.isArray(tx?.nativeTransfers) ? tx.nativeTransfers : [];
+    const tokenTransfers = Array.isArray(tx?.tokenTransfers) ? tx.tokenTransfers : [];
+    const maxSol = nativeTransfers.reduce((m, t) => Math.max(m, Number(t?.amount || 0) / 1e9), 0);
+    const tokenCount = tokenTransfers.length;
+    const type = String(tx?.type || 'UNKNOWN').toUpperCase();
+
+    let score = 30;
+    if (type.includes('SWAP')) score += 20;
+    if (maxSol >= 100) score += 40;
+    else if (maxSol >= 25) score += 30;
+    else if (maxSol >= 5) score += 15;
+    if (tokenCount >= 3) score += 10;
+
+    score = Math.max(0, Math.min(100, score));
+    const grade = score >= 80 ? 'A' : score >= 60 ? 'B' : 'C';
+    return { score, grade };
+  }
+
+  function makeFingerprint(wallet, tx) {
+    const type = String(tx?.type || 'UNKNOWN').toUpperCase();
+    const nativeTransfers = Array.isArray(tx?.nativeTransfers) ? tx.nativeTransfers : [];
+    const topSol = nativeTransfers.reduce((m, t) => Math.max(m, Number(t?.amount || 0)), 0);
+    return `${wallet}|${type}|${topSol}`;
+  }
+
+  function shouldSendByDedup(fingerprint) {
+    const now = Date.now();
+    const last = recentAlertByFingerprint.get(fingerprint) || 0;
+    if (now - last < DEDUP_WINDOW_MS) return false;
+    recentAlertByFingerprint.set(fingerprint, now);
+    return true;
+  }
+
   function buildMsg(wallet, bal, tx) {
-    let msg = `🔔 <b>NEW ACTIVITY</b>\nWallet: <code>${wallet}</code>\n`;
+    const quality = computeAlertScore(tx);
+    let msg = `🔔 <b>NEW ACTIVITY</b>\nWallet: <code>${wallet}</code>\nQuality: <b>${quality.grade}</b> (${quality.score}/100)\n`;
     if (typeof bal === "number") msg += `Balance: <b>${bal.toFixed(4)} SOL</b>\n`;
 
     if (Array.isArray(tx?.nativeTransfers) && tx.nativeTransfers.length) {
@@ -156,7 +193,9 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
         const bal = await getBalanceSol(wallet);
 
         for (const tx of newTxs) {
-          // manda solo agli utenti i cui filtri matchano
+          const fingerprint = makeFingerprint(wallet, tx);
+          if (!shouldSendByDedup(fingerprint)) continue;
+
           for (const sub of subs) {
             if (!matchFilter(tx, sub.filter)) continue;
             await onAlert(sub.chatId, buildMsg(wallet, bal, tx));
