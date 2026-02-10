@@ -49,7 +49,7 @@ async function sendMessage(chatId, text) {
     return null;
   }
 
-  // Node 22: fetch globale (no node-fetch)
+  // Node 22: fetch globale
   const resp = await fetch(`${TG_API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -86,7 +86,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// ✅ Activate = salva + manda messaggio TG (così vedi subito se funziona)
+// ✅ Activate = salva + manda messaggio TG (test immediato)
 app.post("/api/activate", async (req, res) => {
   try {
     const chatId = normalizeChatId(req.body);
@@ -171,6 +171,24 @@ app.post("/notify", async (req, res) => {
   }
 });
 
+/**
+ * ✅ (PREPARATO) Endpoint filtri
+ * Per ora risponde ok senza cambiare nulla.
+ * Quando mi mandi storage.js aggiungiamo setFilter() e lo rendiamo reale.
+ */
+app.post("/api/set-filter", async (req, res) => {
+  try {
+    const chatId = normalizeChatId(req.body);
+    if (!chatId) return res.status(400).json({ ok: false, error: "invalid chatId" });
+
+    // TODO: salvare su storage.js (quando me lo mandi)
+    return res.json({ ok: true, chatId, filter: req.body?.filter || null });
+  } catch (err) {
+    console.error("❌ /api/set-filter error:", err);
+    return res.status(500).json({ ok: false, error: "server error" });
+  }
+});
+
 // ====== Telegram Webhook ======
 app.post("/telegram", async (req, res) => {
   try {
@@ -198,7 +216,7 @@ app.post("/telegram", async (req, res) => {
         const u = await addWallet(cid, wallet);
         await sendMessage(
           cid,
-          `✅ Aggiunto!\nOra monitori:\n${u.wallets.map(w => `• <code>${w}</code>`).join("\n")}`
+          `✅ Aggiunto!\nOra monitori:\n${u.wallets.map((w) => `• <code>${w}</code>`).join("\n")}`
         );
       }
       return res.sendStatus(200);
@@ -212,7 +230,9 @@ app.post("/telegram", async (req, res) => {
         const u = await removeWallet(cid, wallet);
         await sendMessage(
           cid,
-          `✅ Rimosso!\nOra monitori:\n${(u?.wallets || []).map(w => `• <code>${w}</code>`).join("\n") || "(nessuno)"}`
+          `✅ Rimosso!\nOra monitori:\n${
+            (u?.wallets || []).map((w) => `• <code>${w}</code>`).join("\n") || "(nessuno)"
+          }`
         );
       }
       return res.sendStatus(200);
@@ -223,7 +243,7 @@ app.post("/telegram", async (req, res) => {
       await sendMessage(
         cid,
         wallets.length
-          ? `📌 Wallet monitorati:\n${wallets.map(w => `• <code>${w}</code>`).join("\n")}`
+          ? `📌 Wallet monitorati:\n${wallets.map((w) => `• <code>${w}</code>`).join("\n")}`
           : "📭 Nessun wallet in monitoraggio. Usa /add WALLET"
       );
       return res.sendStatus(200);
@@ -244,7 +264,7 @@ app.post("/telegram", async (req, res) => {
 // ====== Start server + Poller (robusto) ======
 const PORT = Number(process.env.PORT || 3000);
 
-// Anti-doppio listen (evita EADDRINUSE se parte due volte)
+// Anti-doppio listen (evita EADDRINUSE)
 if (!globalThis.__WATCHSOL_LISTENING__) {
   globalThis.__WATCHSOL_LISTENING__ = true;
 
@@ -260,7 +280,7 @@ if (!globalThis.__WATCHSOL_LISTENING__) {
           heliusApiKey: HELIUS_API_KEY,
           onAlert: async (chatId, msg) => {
             await sendMessage(String(chatId), String(msg));
-          }
+          },
         });
         console.log("✅ Poller started:", POLL_INTERVAL_MS, "ms");
       } catch (e) {
