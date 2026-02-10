@@ -1,32 +1,30 @@
 // server.js
-// ✅ Express API + Telegram webhook + Test/Activate endpoint (robusto, CORS, log, no-silent-fail)
-
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch"; // ✅ compatibile anche con Node < 18
+import fetch from "node-fetch";
 import { upsertUser, addWallet, removeWallet, listWallets } from "./storage.js";
 import { startPoller } from "./poller.js";
 
 const app = express();
 
-// ====== Config base ======
+// ====== Middleware ======
 app.use(express.json({ limit: "1mb" }));
 
-// CORS (se frontend e backend sono su domini/porte diverse)
 app.use(
   cors({
-    origin: true, // oppure metti: ["https://tuodominio.com"]
+    origin: true, // se vuoi bloccare: ["https://tuodominio.com"]
     credentials: true,
   })
 );
 app.options("*", cors());
 
-// Log richieste (debug: vedi subito se ACTIVATE chiama davvero l'API)
+// Log richieste (debug)
 app.use((req, _res, next) => {
   console.log(`-> ${req.method} ${req.url}`);
   next();
 });
 
+// ====== ENV ======
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
 const RPC_URL = process.env.RPC_URL;
@@ -39,16 +37,10 @@ if (!RPC_URL) console.error("❌ Missing RPC_URL");
 const TG_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : null;
 
 // ====== Utils ======
-function normalizeChatId(bodyOrQuery) {
-  const raw =
-    bodyOrQuery?.chatId ??
-    bodyOrQuery?.chat_id ??
-    bodyOrQuery?.chatID ??
-    bodyOrQuery?.cid;
-
+function normalizeChatId(obj) {
+  const raw = obj?.chatId ?? obj?.chat_id ?? obj?.chatID ?? obj?.cid;
   const chatId =
     typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
-
   if (!chatId || !/^[-]?\d+$/.test(chatId)) return null;
   return chatId;
 }
@@ -71,11 +63,9 @@ async function sendMessage(chatId, text) {
   });
 
   const data = await resp.json().catch(() => null);
-
   if (!resp.ok || !data?.ok) {
     console.error("❌ Telegram sendMessage failed:", resp.status, data);
   }
-
   return data;
 }
 
@@ -84,8 +74,6 @@ app.get("/", (_req, res) => res.send("OK"));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // ====== API per app/web ======
-
-// Register: salva chatId (accetta chatId o chat_id)
 app.post("/api/register", async (req, res) => {
   try {
     console.log("register body:", req.body);
@@ -101,7 +89,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// Activate: salva chatId + manda un messaggio Telegram (end-to-end test)
+// ✅ Activate: salva + manda un messaggio TG (così l’utente vede subito che funziona)
 app.post("/api/activate", async (req, res) => {
   try {
     console.log("activate body:", req.body);
@@ -166,7 +154,7 @@ app.get("/api/list-wallets", async (req, res) => {
   }
 });
 
-// notify: endpoint “test telegram” dal frontend
+// endpoint “notify” per test dal frontend
 app.post("/notify", async (req, res) => {
   try {
     const chatId = normalizeChatId(req.body);
@@ -207,10 +195,7 @@ app.post("/telegram", async (req, res) => {
         await sendMessage(cid, "❌ Uso: /add WALLET");
       } else {
         const u = await addWallet(cid, wallet);
-        await sendMessage(
-          cid,
-          `✅ Aggiunto!\nOra monitori:\n${u.wallets.map((w) => `• <code>${w}</code>`).join("\n")}`
-        );
+        await sendMessage(cid, `✅ Aggiunto!\nOra monitori:\n${u.wallets.map(w => `• <code>${w}</code>`).join("\n")}`);
       }
       return res.sendStatus(200);
     }
@@ -223,9 +208,7 @@ app.post("/telegram", async (req, res) => {
         const u = await removeWallet(cid, wallet);
         await sendMessage(
           cid,
-          `✅ Rimosso!\nOra monitori:\n${
-            (u?.wallets || []).map((w) => `• <code>${w}</code>`).join("\n") || "(nessuno)"
-          }`
+          `✅ Rimosso!\nOra monitori:\n${(u?.wallets || []).map(w => `• <code>${w}</code>`).join("\n") || "(nessuno)"}`
         );
       }
       return res.sendStatus(200);
@@ -236,7 +219,7 @@ app.post("/telegram", async (req, res) => {
       await sendMessage(
         cid,
         wallets.length
-          ? `📌 Wallet monitorati:\n${wallets.map((w) => `• <code>${w}</code>`).join("\n")}`
+          ? `📌 Wallet monitorati:\n${wallets.map(w => `• <code>${w}</code>`).join("\n")}`
           : "📭 Nessun wallet in monitoraggio. Usa /add WALLET"
       );
       return res.sendStatus(200);
@@ -254,7 +237,7 @@ app.post("/telegram", async (req, res) => {
   }
 });
 
-// ====== Start server + Poller H24 ======
+// ====== Start server + Poller ======
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("✅ Server running on port", PORT);
@@ -266,7 +249,7 @@ app.listen(PORT, () => {
       heliusApiKey: HELIUS_API_KEY,
       onAlert: async (chatId, msg) => {
         await sendMessage(String(chatId), String(msg));
-      },
+      }
     });
     console.log("✅ Poller started:", POLL_INTERVAL_MS, "ms");
   } else {
