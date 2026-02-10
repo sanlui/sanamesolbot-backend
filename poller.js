@@ -2,8 +2,43 @@ import { getData } from "./storage.js";
 
 export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
   const lastSigByWallet = new Map();
+  let running = false;
 
-  let running = false; // evita tick sovrapposti
+  function matchFilter(tx, filter) {
+    const f = filter || { mode: "all", minSol: 0, minToken: 0, types: [] };
+    const mode = String(f.mode || "all").toLowerCase();
+
+    if (mode === "all") return true;
+
+    const typeUp = String(tx?.type || "UNKNOWN").toUpperCase();
+
+    if (mode === "swap") {
+      return typeUp.includes("SWAP");
+    }
+
+    if (mode === "types") {
+      const allowed = Array.isArray(f.types) ? f.types.map(x => String(x).toUpperCase()) : [];
+      return allowed.includes(typeUp);
+    }
+
+    if (mode === "sol") {
+      const transfers = Array.isArray(tx?.nativeTransfers) ? tx.nativeTransfers : [];
+      if (!transfers.length) return false;
+      const minSol = Number(f.minSol || 0);
+      if (minSol <= 0) return true;
+      return transfers.some((t) => (Number(t?.amount || 0) / 1e9) >= minSol);
+    }
+
+    if (mode === "spl") {
+      const transfers = Array.isArray(tx?.tokenTransfers) ? tx.tokenTransfers : [];
+      if (!transfers.length) return false;
+      const minToken = Number(f.minToken || 0);
+      if (minToken <= 0) return true;
+      return transfers.some((t) => Number(t?.tokenAmount || 0) >= minToken);
+    }
+
+    return true;
+  }
 
   async function getBalanceSol(address) {
     try {
@@ -60,6 +95,33 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
     }
   }
 
+  function buildMsg(wallet, bal, tx) {
+    let msg = `🔔 <b>NEW ACTIVITY</b>\nWallet: <code>${wallet}</code>\n`;
+    if (typeof bal === "number") msg += `Balance: <b>${bal.toFixed(4)} SOL</b>\n`;
+
+    if (Array.isArray(tx?.nativeTransfers) && tx.nativeTransfers.length) {
+      const t =
+        tx.nativeTransfers.find((x) => (Number(x?.amount || 0) / 1e9) >= 0.001) ||
+        tx.nativeTransfers[0];
+
+      const amt = (Number(t?.amount || 0) / 1e9).toFixed(4);
+      msg += `Transfer: <b>${amt} SOL</b>\n`;
+      msg += `From: <code>${t?.fromUserAccount || "?"}</code>\n`;
+      msg += `To: <code>${t?.toUserAccount || "?"}</code>\n`;
+    } else if (Array.isArray(tx?.tokenTransfers) && tx.tokenTransfers.length) {
+      const t = tx.tokenTransfers[0];
+      msg += `SPL: <b>${t?.tokenAmount ?? "?"}</b>\n`;
+      msg += `Mint: <code>${t?.mint || "?"}</code>\n`;
+      msg += `From: <code>${t?.fromUserAccount || "?"}</code>\n`;
+      msg += `To: <code>${t?.toUserAccount || "?"}</code>\n`;
+    } else {
+      msg += `Type: <b>${tx?.type || "UNKNOWN"}</b>\n`;
+    }
+
+    msg += `Tx: <code>${tx?.signature || "?"}</code>`;
+    return msg;
+  }
+
   async function tick() {
     if (running) return;
     running = true;
@@ -69,47 +131,35 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
       const users = Object.values(data?.users || {});
       if (users.length === 0) return;
 
-      // wallet -> lista chatId interessati
-      const walletToChats = new Map();
+      // wallet -> lista subscriber {chatId, filter}
+      const walletToSubs = new Map();
+
       for (const u of users) {
         const cid = u?.chatId;
         const wallets = Array.isArray(u?.wallets) ? u.wallets : [];
+        const filter = u?.filter || { mode: "all", minSol: 0, minToken: 0, types: [] };
+
         if (!cid || wallets.length === 0) continue;
 
         for (const w of wallets) {
-          if (!w) continue;
-          if (!walletToChats.has(w)) walletToChats.set(w, []);
-          walletToChats.get(w).push(cid);
+          const ww = String(w || "").trim();
+          if (!ww) continue;
+          if (!walletToSubs.has(ww)) walletToSubs.set(ww, []);
+          walletToSubs.get(ww).push({ chatId: cid, filter });
         }
       }
 
-      for (const [wallet, chatIds] of walletToChats.entries()) {
+      for (const [wallet, subs] of walletToSubs.entries()) {
         const newTxs = await getNewTxs(wallet);
         if (newTxs.length === 0) continue;
 
         const bal = await getBalanceSol(wallet);
 
         for (const tx of newTxs) {
-          let msg = `🔔 <b>NEW ACTIVITY</b>\nWallet: <code>${wallet}</code>\n`;
-          if (typeof bal === "number") msg += `Balance: <b>${bal.toFixed(4)} SOL</b>\n`;
-
-          if (Array.isArray(tx.nativeTransfers) && tx.nativeTransfers.length) {
-            const t =
-              tx.nativeTransfers.find((x) => (x.amount / 1e9) >= 0.001) ||
-              tx.nativeTransfers[0];
-
-            const amt = (Number(t?.amount || 0) / 1e9).toFixed(4);
-            msg += `Transfer: <b>${amt} SOL</b>\n`;
-            msg += `From: <code>${t?.fromUserAccount || "?"}</code>\n`;
-            msg += `To: <code>${t?.toUserAccount || "?"}</code>\n`;
-          } else {
-            msg += `Type: <b>${tx.type || "UNKNOWN"}</b>\n`;
-          }
-
-          msg += `Tx: <code>${tx.signature}</code>`;
-
-          for (const chatId of chatIds) {
-            await onAlert(chatId, msg);
+          // manda solo agli utenti i cui filtri matchano
+          for (const sub of subs) {
+            if (!matchFilter(tx, sub.filter)) continue;
+            await onAlert(sub.chatId, buildMsg(wallet, bal, tx));
           }
         }
       }
@@ -120,9 +170,7 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
     }
   }
 
-  // start
   tick();
   const timer = setInterval(tick, pollIntervalMs);
-
   return () => clearInterval(timer);
 }
