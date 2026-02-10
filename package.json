@@ -4,11 +4,12 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "echo \"no tests\" && exit 0"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.6"
+    "cors": "^2.8.6",
+    "express": "^4.19.2"
   },
   "engines": {
     "node": "22.x"
