@@ -32,6 +32,7 @@ const TG_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : null;
 const serverState = {
   startedAt: Date.now(),
   pollerStarted: false,
+  version: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || 'local',
 };
 
 const WALLET_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -91,6 +92,8 @@ app.get('/health', (_req, res) => {
       helius: !!HELIUS_API_KEY,
       rpc: !!RPC_URL,
     },
+    version: serverState.version,
+    pollIntervalMs: POLL_INTERVAL_MS,
   });
 });
 

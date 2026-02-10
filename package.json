@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"no tests\" && exit 0"
+    "test": "echo \"no tests\" && exit 0",
+    "check": "node --check server.js && node --check poller.js && node --check storage.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
