@@ -10,6 +10,9 @@ const DEFAULT_DATA = {
   alertsByWallet: {
     // "WalletPubKey": [ { time: 123, message: "...", chatId: "123456789" }, ... ]
   },
+  devices: {
+    // "ws_xxx": { deviceToken: "ws_xxx", walletAddress: "...", platform: "android", updatedAt: 123 }
+  },
 };
 
 const DEFAULT_FILTER = {
@@ -27,6 +30,7 @@ async function readFileSafe() {
     if (!data || typeof data !== "object") return structuredClone(DEFAULT_DATA);
     if (!data.users || typeof data.users !== "object") data.users = {};
     if (!data.alertsByWallet || typeof data.alertsByWallet !== "object") data.alertsByWallet = {};
+    if (!data.devices || typeof data.devices !== "object") data.devices = {};
 
     // Normalizza filtri per tutti (evita crash)
     for (const k of Object.keys(data.users)) {
@@ -91,6 +95,33 @@ export async function getAlertsForWallet(wallet) {
 
   const list = Array.isArray(data.alertsByWallet?.[w]) ? data.alertsByWallet[w] : [];
   return list.sort((a, b) => (a.time || 0) - (b.time || 0));
+}
+
+export async function upsertDeviceRegistration(deviceToken, walletAddress, platform = 'unknown') {
+  const data = await readFileSafe();
+  if (!data.devices || typeof data.devices !== 'object') data.devices = {};
+
+  const token = String(deviceToken || '').trim();
+  const wallet = String(walletAddress || '').trim();
+  if (!token || !wallet) return null;
+
+  const record = {
+    deviceToken: token,
+    walletAddress: wallet,
+    platform: String(platform || 'unknown'),
+    updatedAt: Date.now(),
+  };
+
+  data.devices[token] = record;
+  await writeFileSafe(data);
+  return record;
+}
+
+export async function getDeviceRegistration(deviceToken) {
+  const data = await readFileSafe();
+  const token = String(deviceToken || '').trim();
+  if (!token) return null;
+  return data.devices?.[token] || null;
 }
 
 export async function getUsersData() {

@@ -9,6 +9,8 @@ import {
   getUserFilter,
   getAlertsForWallet,
   appendAlertForWallet,
+  upsertDeviceRegistration,
+  getDeviceRegistration,
 } from './storage.js';
 import { appendAlert, getAlerts } from './alerts.js';
 import { startPoller } from './poller.js';
@@ -51,6 +53,12 @@ function normalizeWallet(value) {
   const wallet = typeof value === 'string' ? value.trim() : '';
   if (!wallet || !WALLET_REGEX.test(wallet)) return null;
   return wallet;
+}
+
+function normalizeDeviceToken(value) {
+  const token = typeof value === 'string' ? value.trim() : '';
+  if (!token || token.length < 8) return null;
+  return token;
 }
 
 function ok(res, payload = {}) {
@@ -245,6 +253,53 @@ app.get('/api/alerts-by-wallet', async (req, res) => {
     return ok(res, { wallet, alerts });
   } catch (err) {
     console.error('get-alerts-by-wallet error:', err);
+    return serverError(res);
+  }
+});
+
+// Alias for mobile app compatibility
+app.get('/api/alerts/by-wallet', async (req, res) => {
+  try {
+    const wallet = normalizeWallet(req.query?.wallet);
+    if (!wallet) return badRequest(res, 'invalid wallet');
+
+    const alerts = await getAlertsForWallet(wallet);
+    return ok(res, { wallet, alerts });
+  } catch (err) {
+    console.error('get-alerts-by-wallet(alias) error:', err);
+    return serverError(res);
+  }
+});
+
+app.post('/api/device/register', async (req, res) => {
+  try {
+    const deviceToken = normalizeDeviceToken(req.body?.deviceToken);
+    const walletAddress = normalizeWallet(req.body?.walletAddress);
+    const platform = typeof req.body?.platform === 'string' ? req.body.platform : 'unknown';
+
+    if (!deviceToken) return badRequest(res, 'invalid deviceToken');
+    if (!walletAddress) return badRequest(res, 'invalid walletAddress');
+
+    const device = await upsertDeviceRegistration(deviceToken, walletAddress, platform);
+    return ok(res, { device });
+  } catch (err) {
+    console.error('device-register error:', err);
+    return serverError(res);
+  }
+});
+
+app.get('/api/device/alerts', async (req, res) => {
+  try {
+    const deviceToken = normalizeDeviceToken(req.query?.deviceToken);
+    if (!deviceToken) return badRequest(res, 'invalid deviceToken');
+
+    const reg = await getDeviceRegistration(deviceToken);
+    if (!reg?.walletAddress) return ok(res, { deviceToken, alerts: [] });
+
+    const alerts = await getAlertsForWallet(reg.walletAddress);
+    return ok(res, { deviceToken, wallet: reg.walletAddress, alerts });
+  } catch (err) {
+    console.error('device-alerts error:', err);
     return serverError(res);
   }
 });
