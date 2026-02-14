@@ -32,7 +32,7 @@ app.options('*', cors());
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
 const RPC_URL = process.env.RPC_URL || (HELIUS_API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : undefined);
-const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 30000);
+const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 5000);
 const PORT = Number(process.env.PORT || 3000);
 
 const TG_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : null;
