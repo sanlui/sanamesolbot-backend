@@ -168,9 +168,10 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
     try {
       const data = await getData();
       const users = Object.values(data?.users || {});
-      if (users.length === 0) return;
+      const devices = Object.values(data?.devices || {});
+      if (users.length === 0 && devices.length === 0) return;
 
-      // wallet -> lista subscriber {chatId, filter}
+      // wallet -> subscribers [{ chatId, filter, source }]
       const walletToSubs = new Map();
 
       for (const u of users) {
@@ -184,8 +185,17 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
           const ww = String(w || "").trim();
           if (!ww) continue;
           if (!walletToSubs.has(ww)) walletToSubs.set(ww, []);
-          walletToSubs.get(ww).push({ chatId: cid, filter });
+          walletToSubs.get(ww).push({ chatId: cid, filter, source: 'user' });
         }
+      }
+
+      // Device-based subscribers (mobile app path, no Telegram required)
+      for (const d of devices) {
+        const wallet = String(d?.walletAddress || '').trim();
+        if (!wallet) continue;
+        const filter = d?.filter || { mode: 'all', minSol: 0, minToken: 0, types: [] };
+        if (!walletToSubs.has(wallet)) walletToSubs.set(wallet, []);
+        walletToSubs.get(wallet).push({ chatId: null, filter, source: 'device' });
       }
 
       for (const [wallet, subs] of walletToSubs.entries()) {
