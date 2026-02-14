@@ -165,7 +165,7 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
       msg += `Type: ${tx?.type || 'UNKNOWN'}\n`;
     }
 
-    msg += `Tx: ${short(tx?.signature || '?', 8)}`;
+    msg += `Tx: ${tx?.signature || '?'}`;
     return msg;
   }
 
