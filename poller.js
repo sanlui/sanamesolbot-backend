@@ -1,6 +1,8 @@
 import { getData } from "./storage.js";
 
 export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
+  // onAlert(chatId, message, wallet)
+
   const lastSigByWallet = new Map();
   const recentAlertByFingerprint = new Map();
   const DEDUP_WINDOW_MS = 45_000;
@@ -198,7 +200,11 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
 
           for (const sub of subs) {
             if (!matchFilter(tx, sub.filter)) continue;
-            await onAlert(sub.chatId, buildMsg(wallet, bal, tx));
+            if (!wallet) {
+              console.warn('poller: skipping alert with empty wallet');
+              continue;
+            }
+            await onAlert(sub.chatId, buildMsg(wallet, bal, tx), wallet);
           }
         }
       }

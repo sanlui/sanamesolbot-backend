@@ -7,6 +7,9 @@ const DEFAULT_DATA = {
   users: {
     // "123456789": { chatId: "123456789", wallets: ["..."], createdAt: 123, filter: {...} }
   },
+  alertsByWallet: {
+    // "WalletPubKey": [ { time: 123, message: "...", chatId: "123456789" }, ... ]
+  },
 };
 
 const DEFAULT_FILTER = {
@@ -23,6 +26,7 @@ async function readFileSafe() {
 
     if (!data || typeof data !== "object") return structuredClone(DEFAULT_DATA);
     if (!data.users || typeof data.users !== "object") data.users = {};
+    if (!data.alertsByWallet || typeof data.alertsByWallet !== "object") data.alertsByWallet = {};
 
     // Normalizza filtri per tutti (evita crash)
     for (const k of Object.keys(data.users)) {
@@ -54,6 +58,39 @@ async function writeFileSafe(data) {
 
 export async function getData() {
   return await readFileSafe();
+}
+
+export async function appendAlertForWallet(wallet, message, chatId) {
+  const data = await readFileSafe();
+  if (!data.alertsByWallet) data.alertsByWallet = {};
+
+  const w = String(wallet || '').trim();
+  if (!w) return;
+
+  if (!Array.isArray(data.alertsByWallet[w])) {
+    data.alertsByWallet[w] = [];
+  }
+
+  data.alertsByWallet[w].push({
+    time: Date.now(),
+    message: String(message),
+    chatId: chatId ? String(chatId) : undefined,
+  });
+
+  if (data.alertsByWallet[w].length > 50) {
+    data.alertsByWallet[w] = data.alertsByWallet[w].slice(-50);
+  }
+
+  await writeFileSafe(data);
+}
+
+export async function getAlertsForWallet(wallet) {
+  const data = await readFileSafe();
+  const w = String(wallet || '').trim();
+  if (!w) return [];
+
+  const list = Array.isArray(data.alertsByWallet?.[w]) ? data.alertsByWallet[w] : [];
+  return list.sort((a, b) => (a.time || 0) - (b.time || 0));
 }
 
 export async function getUsersData() {

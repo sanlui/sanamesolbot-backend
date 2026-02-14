@@ -7,7 +7,10 @@ import {
   listWallets,
   setUserFilter,
   getUserFilter,
+  getAlertsForWallet,
+  appendAlertForWallet,
 } from './storage.js';
+import { appendAlert, getAlerts } from './alerts.js';
 import { startPoller } from './poller.js';
 
 const app = express();
@@ -78,6 +81,11 @@ async function sendMessage(chatId, text) {
 
   const data = await resp.json().catch(() => null);
   return { ok: !!(resp.ok && data?.ok), status: resp.status, data };
+}
+
+async function storeMobileAlert(chatId, text) {
+  // only used for mobile app alerts; Telegram can be disabled if not needed
+  await appendAlert(String(chatId), String(text));
 }
 
 app.get('/', (_req, res) => res.send('OK'));
@@ -201,10 +209,42 @@ app.post('/notify', async (req, res) => {
     if (!chatId) return badRequest(res, 'invalid chatId');
     if (!text) return badRequest(res, 'text missing');
 
-    const tg = await sendMessage(chatId, text);
-    return ok(res, { telegramOk: tg.ok });
+    // Store alert for mobile app consumption
+    await storeMobileAlert(chatId, text);
+
+    // If you still want Telegram alerts, uncomment this:
+    // const tg = await sendMessage(chatId, text);
+    // return ok(res, { telegramOk: tg.ok });
+
+    return ok(res, { stored: true });
   } catch (err) {
     console.error('notify error:', err);
+    return serverError(res);
+  }
+});
+
+app.get('/api/alerts', async (req, res) => {
+  try {
+    const chatId = normalizeChatId(req.query);
+    if (!chatId) return badRequest(res, 'invalid chatId');
+
+    const alerts = await getAlerts(chatId);
+    return ok(res, { chatId, alerts });
+  } catch (err) {
+    console.error('get-alerts error:', err);
+    return serverError(res);
+  }
+});
+
+app.get('/api/alerts-by-wallet', async (req, res) => {
+  try {
+    const wallet = normalizeWallet(req.query?.wallet);
+    if (!wallet) return badRequest(res, 'invalid wallet');
+
+    const alerts = await getAlertsForWallet(wallet);
+    return ok(res, { wallet, alerts });
+  } catch (err) {
+    console.error('get-alerts-by-wallet error:', err);
     return serverError(res);
   }
 });
@@ -271,8 +311,13 @@ const server = app.listen(PORT, () => {
       pollIntervalMs: POLL_INTERVAL_MS,
       rpcUrl: RPC_URL,
       heliusApiKey: HELIUS_API_KEY,
-      onAlert: async (chatId, msg) => {
-        await sendMessage(String(chatId), String(msg));
+      onAlert: async (chatId, msg, wallet) => {
+        // Salva gli alert indicizzati per wallet per la mobile app
+        if (!wallet) {
+          console.warn('onAlert: missing wallet, skipping appendAlertForWallet');
+          return;
+        }
+        await appendAlertForWallet(wallet, msg, chatId);
       },
     });
     serverState.pollerStarted = true;
