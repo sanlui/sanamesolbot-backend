@@ -357,6 +357,36 @@ app.post('/api/device/filter', async (req, res) => {
   }
 });
 
+app.get('/api/device/registration', async (req, res) => {
+  try {
+    const deviceToken = normalizeDeviceToken(req.query?.deviceToken);
+    if (!deviceToken) return badRequest(res, 'invalid deviceToken');
+
+    const reg = await getDeviceRegistration(deviceToken);
+    return ok(res, { deviceToken, registration: reg || null, hasExpoPushToken: !!reg?.expoPushToken });
+  } catch (err) {
+    console.error('device-registration get error:', err);
+    return serverError(res);
+  }
+});
+
+app.post('/api/device/test-push', async (req, res) => {
+  try {
+    const deviceToken = normalizeDeviceToken(req.body?.deviceToken);
+    const message = typeof req.body?.message === 'string' && req.body.message.trim() ? req.body.message.trim() : 'WatchSol test push';
+    if (!deviceToken) return badRequest(res, 'invalid deviceToken');
+
+    const reg = await getDeviceRegistration(deviceToken);
+    if (!reg?.expoPushToken) return badRequest(res, 'missing expoPushToken for this device');
+
+    const result = await sendExpoPush(reg.expoPushToken, 'WatchSol Test', message);
+    return ok(res, { deviceToken, expoPushToken: reg.expoPushToken, result });
+  } catch (err) {
+    console.error('device-test-push error:', err);
+    return serverError(res);
+  }
+});
+
 app.post('/telegram', async (req, res) => {
   try {
     const msg = req.body?.message?.text;
