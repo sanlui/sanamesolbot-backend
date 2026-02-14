@@ -133,10 +133,18 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
     return true;
   }
 
+  function short(v, n = 6) {
+    const s = String(v || '');
+    if (s.length <= n * 2 + 3) return s;
+    return `${s.slice(0, n)}...${s.slice(-n)}`;
+  }
+
   function buildMsg(wallet, bal, tx) {
     const quality = computeAlertScore(tx);
-    let msg = `🔔 <b>NEW ACTIVITY</b>\nWallet: <code>${wallet}</code>\nQuality: <b>${quality.grade}</b> (${quality.score}/100)\n`;
-    if (typeof bal === "number") msg += `Balance: <b>${bal.toFixed(4)} SOL</b>\n`;
+    let msg = `🔔 NEW ACTIVITY\n`;
+    msg += `Wallet: ${short(wallet)}\n`;
+    msg += `Quality: ${quality.grade} (${quality.score}/100)\n`;
+    if (typeof bal === 'number') msg += `Balance: ${bal.toFixed(4)} SOL\n`;
 
     if (Array.isArray(tx?.nativeTransfers) && tx.nativeTransfers.length) {
       const t =
@@ -144,20 +152,20 @@ export function startPoller({ pollIntervalMs, rpcUrl, heliusApiKey, onAlert }) {
         tx.nativeTransfers[0];
 
       const amt = (Number(t?.amount || 0) / 1e9).toFixed(4);
-      msg += `Transfer: <b>${amt} SOL</b>\n`;
-      msg += `From: <code>${t?.fromUserAccount || "?"}</code>\n`;
-      msg += `To: <code>${t?.toUserAccount || "?"}</code>\n`;
+      msg += `Transfer: ${amt} SOL\n`;
+      msg += `From: ${short(t?.fromUserAccount || '?')}\n`;
+      msg += `To: ${short(t?.toUserAccount || '?')}\n`;
     } else if (Array.isArray(tx?.tokenTransfers) && tx.tokenTransfers.length) {
       const t = tx.tokenTransfers[0];
-      msg += `SPL: <b>${t?.tokenAmount ?? "?"}</b>\n`;
-      msg += `Mint: <code>${t?.mint || "?"}</code>\n`;
-      msg += `From: <code>${t?.fromUserAccount || "?"}</code>\n`;
-      msg += `To: <code>${t?.toUserAccount || "?"}</code>\n`;
+      msg += `Token amount: ${t?.tokenAmount ?? '?'}\n`;
+      msg += `Mint: ${short(t?.mint || '?')}\n`;
+      msg += `From: ${short(t?.fromUserAccount || '?')}\n`;
+      msg += `To: ${short(t?.toUserAccount || '?')}\n`;
     } else {
-      msg += `Type: <b>${tx?.type || "UNKNOWN"}</b>\n`;
+      msg += `Type: ${tx?.type || 'UNKNOWN'}\n`;
     }
 
-    msg += `Tx: <code>${tx?.signature || "?"}</code>`;
+    msg += `Tx: ${short(tx?.signature || '?', 8)}`;
     return msg;
   }
 
