@@ -11,6 +11,8 @@ import {
   appendAlertForWallet,
   upsertDeviceRegistration,
   getDeviceRegistration,
+  setDeviceFilter,
+  getDeviceFilter,
 } from './storage.js';
 import { appendAlert, getAlerts } from './alerts.js';
 import { startPoller } from './poller.js';
@@ -300,6 +302,32 @@ app.get('/api/device/alerts', async (req, res) => {
     return ok(res, { deviceToken, wallet: reg.walletAddress, alerts });
   } catch (err) {
     console.error('device-alerts error:', err);
+    return serverError(res);
+  }
+});
+
+app.get('/api/device/filter', async (req, res) => {
+  try {
+    const deviceToken = normalizeDeviceToken(req.query?.deviceToken);
+    if (!deviceToken) return badRequest(res, 'invalid deviceToken');
+
+    const filter = await getDeviceFilter(deviceToken);
+    return ok(res, { deviceToken, filter });
+  } catch (err) {
+    console.error('device-filter get error:', err);
+    return serverError(res);
+  }
+});
+
+app.post('/api/device/filter', async (req, res) => {
+  try {
+    const deviceToken = normalizeDeviceToken(req.body?.deviceToken);
+    if (!deviceToken) return badRequest(res, 'invalid deviceToken');
+
+    const filter = await setDeviceFilter(deviceToken, req.body?.filter || {});
+    return ok(res, { deviceToken, filter });
+  } catch (err) {
+    console.error('device-filter set error:', err);
     return serverError(res);
   }
 });

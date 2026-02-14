@@ -11,7 +11,7 @@ const DEFAULT_DATA = {
     // "WalletPubKey": [ { time: 123, message: "...", chatId: "123456789" }, ... ]
   },
   devices: {
-    // "ws_xxx": { deviceToken: "ws_xxx", walletAddress: "...", platform: "android", updatedAt: 123 }
+    // "ws_xxx": { deviceToken: "ws_xxx", walletAddress: "...", platform: "android", updatedAt: 123, filter: {...} }
   },
 };
 
@@ -122,6 +122,59 @@ export async function getDeviceRegistration(deviceToken) {
   const token = String(deviceToken || '').trim();
   if (!token) return null;
   return data.devices?.[token] || null;
+}
+
+const DEFAULT_DEVICE_FILTER = {
+  mode: 'all',
+  minSol: 0,
+  minToken: 0,
+  types: [],
+};
+
+export async function setDeviceFilter(deviceToken, filter) {
+  const data = await readFileSafe();
+  const token = String(deviceToken || '').trim();
+  if (!token) return null;
+
+  if (!data.devices[token]) {
+    data.devices[token] = {
+      deviceToken: token,
+      walletAddress: '',
+      platform: 'unknown',
+      updatedAt: Date.now(),
+    };
+  }
+
+  const incoming = filter || {};
+  data.devices[token].filter = {
+    ...DEFAULT_DEVICE_FILTER,
+    ...incoming,
+    mode: incoming?.mode === 'types' ? 'types' : 'all',
+    minSol: Number(incoming?.minSol ?? 0),
+    minToken: Number(incoming?.minToken ?? 0),
+    types: Array.isArray(incoming?.types) ? incoming.types : [],
+  };
+  data.devices[token].updatedAt = Date.now();
+  await writeFileSafe(data);
+  return data.devices[token].filter;
+}
+
+export async function getDeviceFilter(deviceToken) {
+  const data = await readFileSafe();
+  const token = String(deviceToken || '').trim();
+  if (!token) return { ...DEFAULT_DEVICE_FILTER };
+
+  const current = data.devices?.[token]?.filter;
+  if (!current) return { ...DEFAULT_DEVICE_FILTER };
+
+  return {
+    ...DEFAULT_DEVICE_FILTER,
+    ...current,
+    mode: current?.mode === 'types' ? 'types' : 'all',
+    minSol: Number(current?.minSol ?? 0),
+    minToken: Number(current?.minToken ?? 0),
+    types: Array.isArray(current?.types) ? current.types : [],
+  };
 }
 
 export async function getUsersData() {
