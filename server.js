@@ -13,6 +13,7 @@ import {
   getDeviceRegistration,
   setDeviceFilter,
   getDeviceFilter,
+  listExpoPushTokensByWallet,
 } from './storage.js';
 import { appendAlert, getAlerts } from './alerts.js';
 import { startPoller } from './poller.js';
@@ -96,6 +97,29 @@ async function sendMessage(chatId, text) {
 async function storeMobileAlert(chatId, text) {
   // only used for mobile app alerts; Telegram can be disabled if not needed
   await appendAlert(String(chatId), String(text));
+}
+
+async function sendExpoPush(expoPushToken, title, body) {
+  try {
+    const resp = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        to: expoPushToken,
+        sound: 'default',
+        title,
+        body,
+        priority: 'high',
+      }),
+    });
+    const data = await resp.json().catch(() => null);
+    return { ok: !!resp.ok, data };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
 }
 
 app.get('/', (_req, res) => res.send('OK'));
@@ -278,11 +302,12 @@ app.post('/api/device/register', async (req, res) => {
     const deviceToken = normalizeDeviceToken(req.body?.deviceToken);
     const walletAddress = normalizeWallet(req.body?.walletAddress);
     const platform = typeof req.body?.platform === 'string' ? req.body.platform : 'unknown';
+    const expoPushToken = typeof req.body?.expoPushToken === 'string' ? req.body.expoPushToken.trim() : '';
 
     if (!deviceToken) return badRequest(res, 'invalid deviceToken');
     if (!walletAddress) return badRequest(res, 'invalid walletAddress');
 
-    const device = await upsertDeviceRegistration(deviceToken, walletAddress, platform);
+    const device = await upsertDeviceRegistration(deviceToken, walletAddress, platform, expoPushToken);
     return ok(res, { device });
   } catch (err) {
     console.error('device-register error:', err);
@@ -401,6 +426,12 @@ const server = app.listen(PORT, () => {
           return;
         }
         await appendAlertForWallet(wallet, msg, chatId);
+
+        const pushTokens = await listExpoPushTokensByWallet(wallet);
+        for (const token of pushTokens) {
+          const r = await sendExpoPush(token, 'WatchSol Alert', msg);
+          if (!r.ok) console.warn('expo push failed', token, r?.data || r?.error);
+        }
       },
     });
     serverState.pollerStarted = true;

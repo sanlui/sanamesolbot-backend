@@ -97,7 +97,7 @@ export async function getAlertsForWallet(wallet) {
   return list.sort((a, b) => (a.time || 0) - (b.time || 0));
 }
 
-export async function upsertDeviceRegistration(deviceToken, walletAddress, platform = 'unknown') {
+export async function upsertDeviceRegistration(deviceToken, walletAddress, platform = 'unknown', expoPushToken = '') {
   const data = await readFileSafe();
   if (!data.devices || typeof data.devices !== 'object') data.devices = {};
 
@@ -105,10 +105,13 @@ export async function upsertDeviceRegistration(deviceToken, walletAddress, platf
   const wallet = String(walletAddress || '').trim();
   if (!token || !wallet) return null;
 
+  const previous = data.devices[token] || {};
   const record = {
+    ...previous,
     deviceToken: token,
     walletAddress: wallet,
     platform: String(platform || 'unknown'),
+    expoPushToken: String(expoPushToken || previous.expoPushToken || ''),
     updatedAt: Date.now(),
   };
 
@@ -175,6 +178,18 @@ export async function getDeviceFilter(deviceToken) {
     minToken: Number(current?.minToken ?? 0),
     types: Array.isArray(current?.types) ? current.types : [],
   };
+}
+
+export async function listExpoPushTokensByWallet(walletAddress) {
+  const data = await readFileSafe();
+  const wallet = String(walletAddress || '').trim();
+  if (!wallet) return [];
+
+  const tokens = Object.values(data.devices || {})
+    .filter((d) => d && d.walletAddress === wallet && typeof d.expoPushToken === 'string' && d.expoPushToken.trim().startsWith('ExponentPushToken'))
+    .map((d) => d.expoPushToken.trim());
+
+  return Array.from(new Set(tokens));
 }
 
 export async function getUsersData() {
